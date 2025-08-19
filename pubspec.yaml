@@ -1,0 +1,52 @@
+name: onde
+description: A mobile app for beauty salon Onde.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  app_links: ^3.0.0
+  cupertino_icons: ^1.0.6
+  image_picker: ^1.0.4 
+  firebase_core: ^2.27.0
+  firebase_messaging: ^14.7.5
+  flutter_local_notifications: ^17.2.3
+  http: ^0.13.6
+  path_provider: ^2.0.15
+  share_plus: ^7.2.0
+
+
+  # Supabase (для БД и аутентификации)
+  supabase_flutter: ^2.9.1
+  supabase: ^2.8.0
+
+  # Навигация (если будешь использовать)
+  go_router: ^13.1.0
+
+  # Доп. инструменты
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.13.1
+
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/icon.png
+    - assets/images/welcome.png
+
+flutter_icons:
+ android: true
+ ios: true
+ image_path: "assets/images/icon.png"
+ adaptive_icon_background: "FFFFFF"
+ adaptive_icon_foreground: "assets/images/icon.png"
