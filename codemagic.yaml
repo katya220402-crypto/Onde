@@ -7,7 +7,6 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      # Подтягиваем переменные из группы в Codemagic → Environment variables
       groups:
         - android_secrets
         - ios_secrets
@@ -28,55 +27,51 @@ workflows:
           java -version || true
           echo "Gradle wrapper: $(grep distributionUrl android/gradle/wrapper/gradle-wrapper.properties || true)"
 
-      - name: Restore Firebase & signing files
+      - name: Restore Firebase & signing files (bash only)
         script: |
           set -e
           mkdir -p android/app
           mkdir -p ios/Runner
 
-          # --- Keystore (Android) ---
+          # универсальная функция декодирования для macOS/Linux
+          decode_b64() { 
+            # сначала пытаемся GNU-ключом, если не вышло — macOS -D
+            if ! base64 --decode >/dev/null 2>&1 <<<""; then
+              base64 -D
+            else
+              base64 --decode
+            fi
+          }
+
+          # --- Keystore ---
           if [ -n "$CM_KEYSTORE" ]; then
-            python3 - <<'PY'
-import os, base64
-b = os.environ.get("CM_KEYSTORE","").strip()
-open("android/app/onde-release.keystore","wb").write(base64.b64decode(b))
-print("Keystore restored")
-PY
+            printf %s "$CM_KEYSTORE" | decode_b64 > android/app/onde-release.keystore
+            echo "Keystore restored: $(wc -c < android/app/onde-release.keystore) bytes"
           fi
 
           # --- google-services.json (Android) ---
           if [ -n "$CM_GOOGLE_SERVICES_JSON" ]; then
-            python3 - <<'PY'
-import os, base64
-b = os.environ.get("CM_GOOGLE_SERVICES_JSON","").strip()
-open("android/app/google-services.json","wb").write(base64.b64decode(b))
-print("google-services.json restored")
-PY
-            echo "android/app/google-services.json size: $(wc -c < android/app/google-services.json) bytes"
+            printf %s "$CM_GOOGLE_SERVICES_JSON" | decode_b64 > android/app/google-services.json
+            echo "google-services.json size: $(wc -c < android/app/google-services.json) bytes"
           fi
 
           # --- GoogleService-Info.plist (iOS) ---
           if [ -n "$CM_GOOGLESERVICE_INFO_PLIST" ]; then
-            python3 - <<'PY'
-import os, base64
-b = os.environ.get("CM_GOOGLESERVICE_INFO_PLIST","").strip()
-open("ios/Runner/GoogleService-Info.plist","wb").write(base64.b64decode(b))
-print("GoogleService-Info.plist restored")
-PY
-            echo "ios/Runner/GoogleService-Info.plist size: $(wc -c < ios/Runner/GoogleService-Info.plist) bytes"
+            printf %s "$CM_GOOGLESERVICE_INFO_PLIST" | decode_b64 > ios/Runner/GoogleService-Info.plist
+            echo "GoogleService-Info.plist size: $(wc -c < ios/Runner/GoogleService-Info.plist) bytes"
           fi
 
           # --- key.properties (Android signing) ---
           if [ -n "$CM_KEY_ALIAS" ] && [ -n "$CM_KEY_PASSWORD" ] && [ -n "$CM_KEYSTORE_PASSWORD" ]; then
             cat > android/key.properties <<EOF
-storePassword=$CM_KEYSTORE_PASSWORD
-keyPassword=$CM_KEY_PASSWORD
-keyAlias=$CM_KEY_ALIAS
-storeFile=onde-release.keystore
-EOF
+            storePassword=$CM_KEYSTORE_PASSWORD
+            keyPassword=$CM_KEY_PASSWORD
+            keyAlias=$CM_KEY_ALIAS
+            storeFile=onde-release.keystore
+            EOF
             echo "android/key.properties written"
           else
-            echo "Signing env vars missing, Android build will be unsigned."
+            echo "WARN: signing env vars missing — Android AAB будет unsigned."
           fi
 
       - name: Flutter pub get
@@ -85,7 +80,6 @@ EOF
 
       - name: Build Android AAB
         script: |
-          # гарантируем наличие wrapper’a, чтобы у Codemagic не было конфликтов версий
           (cd android && ./gradlew --no-daemon wrapper) || true
           flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64
         artifacts:
