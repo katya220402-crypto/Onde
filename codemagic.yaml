@@ -1,62 +1,69 @@
 workflows:
   android_ios_release:
-    name: Android & iOS Release
-    max_build_duration: 120
-    instance_type: mac_mini_m2
+    name: Android & iOS • release
+    max_build_duration: 60
+    instance_type: mac_m2
 
     environment:
       flutter: stable
-      # группы переменных — создай их в Codemagic → Environment variables
+      xcode: latest
       groups:
-        - android_secrets
-        - ios_secrets
-        - backend
+        - firebase_files
+        - android_signing
+        - supabase
+        - notifications
 
     cache:
       cache_paths:
+        - ~/.pub-cache
         - $FLUTTER_ROOT/.pub-cache
-        - ~/.gradle/caches
-        - ~/.gradle/wrapper
+        - android/.gradle
+        - android/build
         - ios/Pods
+        - build
 
     scripts:
       - name: Print versions
         script: |
+          set -e
           flutter --version
-          dart --version
-          java -version
+          java -version || true
+          node -v || true
+          ruby -v || true
+          echo "Branch: $FCI_BRANCH"
 
       - name: Restore Firebase & signing files (bash only)
         script: |
-          set -e
-          mkdir -p android/app
-          mkdir -p ios/Runner
+          set -euo pipefail
+          mkdir -p android/app ios/Runner
 
-          # keystore
-          if [ -n "$CM_KEYSTORE" ]; then
-            echo "$CM_KEYSTORE" | base64 -d > android/app/onde-release.keystore
-            echo "Keystore restored: $(wc -c < android/app/onde-release.keystore) bytes"
+          # Keystore
+          if [ -n "${CM_KEYSTORE:-}" ]; then
+            printf "%s" "$CM_KEYSTORE" | base64 --decode > android/app/onde-release.keystore
+            echo "Keystore restored → $(wc -c < android/app/onde-release.keystore) bytes"
           fi
 
-          # key.properties для подписи Android
-          cat > android/key.properties <<EOF
+          # google-services.json (Android)
+          if [ -n "${CM_GOOGLE_SERVICES_JSON:-}" ]; then
+            printf "%s" "$CM_GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+            echo "google-services.json restored → $(wc -c < android/app/google-services.json) bytes"
+            echo "google-services.json head:"; head -n 1 android/app/google-services.json || true
+          fi
+
+          # GoogleService-Info.plist (iOS)
+          if [ -n "${CM_GOOGLESERVICE_INFO_PLIST:-}" ]; then
+            printf "%s" "$CM_GOOGLESERVICE_INFO_PLIST" | base64 --decode > ios/Runner/GoogleService-Info.plist
+            echo "GoogleService-Info.plist restored → $(wc -c < ios/Runner/GoogleService-Info.plist) bytes"
+          fi
+
+          # key.properties for Gradle (не обязателен, но удобно)
+          cat > android/key.properties <<PROP
           storePassword=${CM_KEYSTORE_PASSWORD}
           keyPassword=${CM_KEY_PASSWORD}
           keyAlias=${CM_KEY_ALIAS}
           storeFile=onde-release.keystore
-          EOF
-
-          # google-services.json (Android)
-          if [ -n "$CM_GOOGLE_SERVICES_JSON" ]; then
-            echo "$CM_GOOGLE_SERVICES_JSON" | base64 -d > android/app/google-services.json
-            echo "google-services.json size: $(wc -c < android/app/google-services.json) bytes"
-          fi
-
-          # GoogleService-Info.plist (iOS)
-          if [ -n "$CM_GOOGLESERVICE_INFO_PLIST" ]; then
-            echo "$CM_GOOGLESERVICE_INFO_PLIST" | base64 -d > ios/Runner/GoogleService-Info.plist
-            echo "GoogleService-Info.plist size: $(wc -c < ios/Runner/GoogleService-Info.plist) bytes"
-          fi
+          PROP
+          echo "key.properties written"
 
       - name: Flutter pub get
         script: flutter pub get
@@ -64,23 +71,26 @@ workflows:
       - name: Build Android AAB
         script: |
           set -e
-          # чистим Gradle, чтобы точно подхватился keystore
           (cd android && ./gradlew --no-daemon clean)
           flutter build appbundle --release \
             --target-platform android-arm,android-arm64,android-x64 \
-            --dart-define=SUPABASE_URL=$SUPABASE_URL \
-            --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
-        artifacts:
-          - build/app/outputs/bundle/release/*.aab
-          - build/app/outputs/mapping/**/*.txt
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+          echo "AABs:"; ls -lh build/app/outputs/bundle/release || true
+          echo "Proguard mapping:"; ls -lh build/app/outputs/mapping/release || true
 
       - name: Build iOS IPA (no codesign)
         script: |
+          set -e
           flutter build ipa --release --no-codesign \
-            --dart-define=SUPABASE_URL=$SUPABASE_URL \
-            --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
-        artifacts:
-          - build/ios/ipa/*.ipa
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+          echo "IPAs:"; ls -lh build/ios/ipa || true
+
+    artifacts:
+      - build/app/outputs/bundle/release/*.aab
+      - build/app/outputs/mapping/**/*.txt
+      - build/ios/ipa/*.ipa
 
     publishing:
       email:
