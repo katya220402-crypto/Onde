@@ -1,52 +1,110 @@
 workflows:
-  flutter_release:
-    name: Onde • Android & iOS
+  android_ios_release:
+    name: Android & iOS
     max_build_duration: 60
+    instance_type: mac_mini_m2
+
     environment:
       flutter: stable
-      xcode: 15.4
-      vars:
-        SUPABASE_URL: $SUPABASE_URL
-        SUPABASE_ANON_KEY: $SUPABASE_ANON_KEY
+      # Группа переменных Codemagic (создаёшь в Settings → Environment variables)
+      groups:
+        - prod
 
     cache:
       cache_paths:
-        - ~/.pub-cache
         - $FLUTTER_ROOT/.pub-cache
+        - ~/.pub-cache
         - android/.gradle
         - ~/.gradle
 
     scripts:
+      # 0) Печать версий
       - name: Print versions
         script: |
           flutter --version
-          dart --version
           java -version
+          node -v || true
+          python3 --version
 
+      # 1) Восстановление секретов (keystore, google-services.*)
       - name: Restore Firebase & signing files
         script: |
           set -e
-          echo "$CM_GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+          mkdir -p android/app
           mkdir -p ios/Runner
-          echo "$CM_GOOGLESERVICE_INFO_PLIST" | base64 --decode > ios/Runner/GoogleService-Info.plist
-          echo "$CM_KEYSTORE" | base64 --decode > android/app/onde-release.keystore
-          cat > android/key.properties <<EOF
-          storePassword=$CM_KEYSTORE_PASSWORD
-          keyPassword=$CM_KEY_PASSWORD
-          keyAlias=$CM_KEY_ALIAS
-          storeFile=../app/onde-release.keystore
-          EOF
 
+          # Keystore
+          if [ -n "$CM_KEYSTORE" ]; then
+            python3 - <<'PY'
+import os,base64
+b=os.environ.get("CM_KEYSTORE","").strip()
+open("android/app/onde-release.keystore","wb").write(base64.b64decode(b))
+print("Keystore restored")
+PY
+          fi
+
+          # google-services.json (Android)
+          if [ -n "$CM_GOOGLE_SERVICES_JSON" ]; then
+            python3 - <<'PY'
+import os,base64
+b=os.environ.get("CM_GOOGLE_SERVICES_JSON","").strip()
+open("android/app/google-services.json","wb").write(base64.b64decode(b))
+print("google-services.json restored")
+PY
+            echo "android/app/google-services.json size: $(wc -c < android/app/google-services.json) bytes"
+          fi
+
+          # GoogleService-Info.plist (iOS)
+          if [ -n "$CM_GOOGLESERVICE_INFO_PLIST" ]; then
+            python3 - <<'PY'
+import os,base64
+b=os.environ.get("CM_GOOGLESERVICE_INFO_PLIST","").strip()
+open("ios/Runner/GoogleService-Info.plist","wb").write(base64.b64decode(b))
+print("GoogleService-Info.plist restored")
+PY
+            echo "ios/Runner/GoogleService-Info.plist size: $(wc -c < ios/Runner/GoogleService-Info.plist) bytes"
+          fi
+
+          # key.properties для Android
+          cat > android/key.properties <<'PROPS'
+storePassword=${CM_KEYSTORE_PASSWORD}
+keyPassword=${CM_KEY_PASSWORD}
+keyAlias=${CM_KEY_ALIAS}
+storeFile=onde-release.keystore
+PROPS
+          echo "android/key.properties written"
+
+      # 2) Pub get
       - name: Flutter pub get
         script: flutter pub get
 
+      # 3) Сборка Android AAB
       - name: Build Android AAB
-        script: flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64
+        script: |
+          # гарантируем актуальный gradle-wrapper (если вдруг старый)
+          if [ -f android/gradle/wrapper/gradle-wrapper.properties ]; then
+            sed -i '' 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-all.zip|' android/gradle/wrapper/gradle-wrapper.properties || true
+          fi
 
-      - name: Build iOS IPA (no codesign)
-        script: flutter build ipa --release --no-codesign
+          flutter build appbundle --release \
+            --target-platform android-arm,android-arm64,android-x64 \
+            --obfuscate --split-debug-info=build/debug-info
 
-    artifacts:
-      - build/app/outputs/bundle/release/*.aab
-      - build/app/outputs/**/mapping.txt
-      - build/ios/ipa/*.ipa
+        artifacts:
+          - build/app/outputs/bundle/release/*.aab
+          - build/app/outputs/**/mapping.txt
+
+      # 4) Сборка iOS IPA (без локальной подписи; Codemagic подпишет при Automatic code signing)
+      - name: Build iOS IPA
+        script: |
+          flutter build ipa --release --no-codesign
+        artifacts:
+          - build/ios/ipa/*.ipa
+
+    publishing:
+      email:
+        recipients:
+          - ${PUBLISH_EMAIL:-}
+        notify:
+          success: true
+          failure: true
