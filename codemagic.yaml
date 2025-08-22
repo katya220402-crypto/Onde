@@ -1,0 +1,88 @@
+workflows:
+  android_ios_release:
+    name: Android & iOS build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      # Эти переменные ты уже добавила в Codemagic (Environment variables)
+      vars:
+        SUPABASE_URL: $SUPABASE_URL
+        SUPABASE_ANON_KEY: $SUPABASE_ANON_KEY
+        CM_GOOGLE_SERVICES_JSON: $CM_GOOGLE_SERVICES_JSON
+        CM_GOOGLESERVICE_INFO_PLIST: $CM_GOOGLESERVICE_INFO_PLIST
+        CM_KEYSTORE: $CM_KEYSTORE
+        CM_KEY_ALIAS: $CM_KEY_ALIAS
+        CM_KEY_PASSWORD: $CM_KEY_PASSWORD
+        CM_KEYSTORE_PASSWORD: $CM_KEYSTORE_PASSWORD
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - $FLUTTER_ROOT/.pub-cache
+        - android/.gradle
+        - ~/.gradle
+        - ios/Pods
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+
+    scripts:
+      # 1) Подготовка окружения
+      - name: Flutter packages
+        script: |
+          flutter --version
+          flutter pub get
+
+      # 2) Восстанавливаем google-services.json (Android)
+      - name: Create google-services.json
+        script: |
+          echo "$CM_GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+          ls -la android/app | grep google-services.json || (echo "google-services.json not created" && exit 1)
+
+      # 3) Восстанавливаем GoogleService-Info.plist (iOS)
+      - name: Create GoogleService-Info.plist
+        script: |
+          mkdir -p ios/Runner
+          echo "$CM_GOOGLESERVICE_INFO_PLIST" | base64 --decode > ios/Runner/GoogleService-Info.plist
+          ls -la ios/Runner | grep GoogleService-Info.plist || (echo "GoogleService-Info.plist not created" && exit 1)
+
+      # 4) Подготавливаем release keystore для Android
+      - name: Prepare Android keystore
+        script: |
+          echo "$CM_KEYSTORE" | base64 --decode > android/app/onde-release.keystore
+          cat > android/key.properties <<EOF
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyPassword=$CM_KEY_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          storeFile=onde-release.keystore
+          EOF
+          cat android/key.properties
+
+      # 5) Сборка Android AAB
+      - name: Build Android app bundle
+        script: |
+          flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64
+        artifacts:
+          - build/app/outputs/bundle/release/*.aab
+          - build/app/outputs/**/mapping.txt
+
+      # 6) Сборка iOS (без подписи либо с автоподписью Codemagic)
+      - name: Build iOS IPA
+        script: |
+          # Если в Codemagic включишь Automatic code signing (подключишь Apple Developer),
+          # можно собирать .ipa для App Store. Иначе соберётся unsigned.
+          flutter build ipa --release --no-codesign
+        artifacts:
+          - build/ios/ipa/*.ipa
+
+    publishing:
+      email:
+        recipients:
+          - $CM_EMAIL # по желанию: добавь в переменные свой email
+        notify:
+          success: true
+          failure: true
