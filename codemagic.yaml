@@ -82,15 +82,15 @@ workflows:
         script: |
           (cd android && ./gradlew --no-daemon wrapper) || true
           flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64
-        artifacts:
-          - build/app/outputs/bundle/release/*.aab
-          - android/app/build/outputs/mapping/release/mapping.txt
+    artifacts:
+      - build/app/outputs/bundle/release/*.aab
+      - android/app/build/outputs/mapping/release/mapping.txt
 
       - name: Build iOS IPA (no codesign)
         script: |
           flutter build ipa --release --no-codesign
-        artifacts:
-          - build/ios/ipa/*.ipa
+    artifacts:
+      - build/ios/ipa/*.ipa
 
     publishing:
       scripts:
