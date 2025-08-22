@@ -33,32 +33,28 @@ workflows:
           mkdir -p android/app
           mkdir -p ios/Runner
 
-          # универсальная функция декодирования для macOS/Linux
-          decode_b64() { 
-            # сначала пытаемся GNU-ключом, если не вышло — macOS -D
-            if ! base64 --decode >/dev/null 2>&1 <<<""; then
-              base64 -D
-            else
-              base64 --decode
-            fi
-          }
-
-          # --- Keystore ---
+          # Keystore (base64 -> файл)
           if [ -n "$CM_KEYSTORE" ]; then
-            printf %s "$CM_KEYSTORE" | decode_b64 > android/app/onde-release.keystore
+            printf "%s" "$CM_KEYSTORE" | base64 -D > android/app/onde-release.keystore
             echo "Keystore restored: $(wc -c < android/app/onde-release.keystore) bytes"
+          else
+            echo "CM_KEYSTORE is empty — skipping"
           fi
 
-          # --- google-services.json (Android) ---
+          # google-services.json (Android)
           if [ -n "$CM_GOOGLE_SERVICES_JSON" ]; then
-            printf %s "$CM_GOOGLE_SERVICES_JSON" | decode_b64 > android/app/google-services.json
+            printf "%s" "$CM_GOOGLE_SERVICES_JSON" | base64 -D > android/app/google-services.json
             echo "google-services.json size: $(wc -c < android/app/google-services.json) bytes"
+          else
+            echo "CM_GOOGLE_SERVICES_JSON is empty — skipping"
           fi
 
-          # --- GoogleService-Info.plist (iOS) ---
+          # GoogleService-Info.plist (iOS)
           if [ -n "$CM_GOOGLESERVICE_INFO_PLIST" ]; then
-            printf %s "$CM_GOOGLESERVICE_INFO_PLIST" | decode_b64 > ios/Runner/GoogleService-Info.plist
+            printf "%s" "$CM_GOOGLESERVICE_INFO_PLIST" | base64 -D > ios/Runner/GoogleService-Info.plist
             echo "GoogleService-Info.plist size: $(wc -c < ios/Runner/GoogleService-Info.plist) bytes"
+          else
+            echo "CM_GOOGLESERVICE_INFO_PLIST is empty — skipping"
           fi
 
           # --- key.properties (Android signing) ---
