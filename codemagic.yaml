@@ -94,7 +94,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - $CM_NOTIFICATION_EMAIL
+          - "katya220402@gmail.com"
         notify:
           success: true
           failure: true
