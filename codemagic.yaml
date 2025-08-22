@@ -70,7 +70,7 @@ workflows:
       - name: Build Android AAB
         script: |
           set -e
-          (cd android && ./gradlew --no-daemon clean)
+          (cd android && sh../gradlew --no-daemon clean)
           flutter build appbundle --release \
             --target-platform android-arm,android-arm64,android-x64 \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
